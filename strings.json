@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "bluetooth_confirm": {
+        "description": "Do you want to set up {name}?"
+      },
+      "user": {
+        "description": "Choose a device to set up.",
+        "data": {
+          "address": "Bluetooth address"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "no_devices_found": "No devices found",
+      "single_instance_allowed": "Only a single instance is allowed"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "flow_temperature": {
+        "name": "Flow temperature"
+      },
+      "return_temperature": {
+        "name": "Return temperature"
+      }
+    },
+    "switch": {
+      "heat_control": {
+        "name": "Heat control"
+      }
+    },
+    "binary_sensor": {
+      "alarm": {
+        "name": "Alarm"
+      }
+    }
+  }
+}
