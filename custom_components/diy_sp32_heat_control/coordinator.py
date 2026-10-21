@@ -49,7 +49,9 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._address = address
         self._client: BleakClient | None = None
-
+    	self._current_switch: bool = False      # NEU
+    	self._current_target_raw: int = 0       # NEU (skalierter Sollwert)
+        
     async def _async_update_data(self) -> dict[str, Any]:
         """Connect to the device and subscribe to notifications."""
         if self._client is not None and self._client.is_connected:
@@ -88,15 +90,29 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._client is None or not self._client.is_connected:
             _LOGGER.warning("Not connected, cannot write target temp")
             return
-        payload = struct.pack("<H", raw_value)
+        self._current_target_raw = raw_value
+        # 3-Byte-Paket: [Schalter, Sollwert_L, Sollwert_H]
+        payload = struct.pack("<BHH", 1 if self._current_switch else 0, raw_value, 0)[:3]
+        # Alternativ sauberer:
+        payload = bytes([
+            1 if self._current_switch else 0,
+            raw_value & 0xFF,
+            (raw_value >> 8) & 0xFF,
+        ])
         await self._client.write_gatt_char(WRITE_UUID, payload, response=False)
-        _LOGGER.debug("Wrote target temp raw value: %s", raw_value)
+        _LOGGER.debug("Wrote target temp raw value: %s (payload: %s)", raw_value, payload.hex())
 
     async def async_write_switch(self, state: bool) -> None:
         """Write the switch state to the device."""
         if self._client is None or not self._client.is_connected:
             _LOGGER.warning("Not connected, cannot write switch state")
             return
-        payload = struct.pack("<B", 1 if state else 0)
+        self._current_switch = state
+        # 3-Byte-Paket: [Schalter, Sollwert_L, Sollwert_H]
+        payload = bytes([
+            1 if state else 0,
+            self._current_target_raw & 0xFF,
+            (self._current_target_raw >> 8) & 0xFF,
+        ])
         await self._client.write_gatt_char(WRITE_UUID, payload, response=False)
-        _LOGGER.debug("Wrote switch state: %s", state)
+        _LOGGER.debug("Wrote switch state: %s (payload: %s)", state, payload.hex())
