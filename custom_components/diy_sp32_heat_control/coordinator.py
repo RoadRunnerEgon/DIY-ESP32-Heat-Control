@@ -49,9 +49,9 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._address = address
         self._client: BleakClient | None = None
-    	self._current_switch: bool = False      # NEU
-    	self._current_target_raw: int = 0       # NEU (skalierter Sollwert)
-        
+        self._current_switch: bool = False      # NEU
+        self._current_target_raw: int = 0       # NEU (skalierter Sollwert)
+                
     async def _async_update_data(self) -> dict[str, Any]:
         """Connect to the device and subscribe to notifications."""
         if self._client is not None and self._client.is_connected:
