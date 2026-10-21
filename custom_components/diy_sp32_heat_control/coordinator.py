@@ -77,20 +77,20 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._client = None
             raise UpdateFailed(f"BLE connection failed: {err}") from err
 
-    @callback
-    def _notification_handler(self, sender: int, data: bytearray) -> None:
-        """Handle incoming notifications."""
-        parsed = parse_notification(data)
-        if parsed:
-            # Nur ergänzen, wenn der ESP32 keinen Sollwert geliefert hat
-            if "target_temp" not in parsed:
-                parsed["target_temp"] = self._current_target_raw / 10.0
-            # Den lokalen Sollwert mit dem empfangenen Wert synchronisieren
-            if "target_temp" in parsed:
-                self._current_target_raw = int(parsed["target_temp"] * 10)
-            parsed["switch_on"] = self._current_switch
-            _LOGGER.debug("Received notification: %s", parsed)
-            self.async_set_updated_data(parsed)
+@callback
+def _notification_handler(self, sender: int, data: bytearray) -> None:
+    """Handle incoming notifications."""
+    parsed = parse_notification(data)
+    if parsed:
+        # Den vom ESP32 gesendeten Sollwert übernehmen (falls vorhanden)
+        if "target_temp" in parsed:
+            self._current_target_raw = int(parsed["target_temp"] * 10)
+        else:
+            # Fallback: lokalen Wert verwenden
+            parsed["target_temp"] = self._current_target_raw / 10.0
+        parsed["switch_on"] = self._current_switch
+        _LOGGER.debug("Received notification: %s", parsed)
+        self.async_set_updated_data(parsed)
 
     async def async_write_target_temp(self, raw_value: int) -> None:
         """Write the target temperature (scaled uint16) to the device."""
