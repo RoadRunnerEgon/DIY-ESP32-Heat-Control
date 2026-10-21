@@ -82,6 +82,9 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Handle incoming notifications."""
         parsed = parse_notification(data)
         if parsed:
+            # Sollwert und Schalter aus dem lokalen Zustand ergänzen
+            parsed["target_temp"] = self._current_target_raw / 10.0
+            parsed["switch_on"] = self._current_switch
             _LOGGER.debug("Received notification: %s", parsed)
             self.async_set_updated_data(parsed)
 
@@ -92,8 +95,6 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self._current_target_raw = raw_value
         # 3-Byte-Paket: [Schalter, Sollwert_L, Sollwert_H]
-        payload = struct.pack("<BHH", 1 if self._current_switch else 0, raw_value, 0)[:3]
-        # Alternativ sauberer:
         payload = bytes([
             1 if self._current_switch else 0,
             raw_value & 0xFF,
@@ -101,7 +102,12 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ])
         await self._client.write_gatt_char(WRITE_UUID, payload, response=False)
         _LOGGER.debug("Wrote target temp raw value: %s (payload: %s)", raw_value, payload.hex())
-
+        # NEU: Daten-Dictionary aktualisieren, damit die UI sofort reagiert
+        if self.data is not None:
+            updated = dict(self.data)
+            updated["target_temp"] = raw_value / 10.0
+            self.async_set_updated_data(updated)
+            
     async def async_write_switch(self, state: bool) -> None:
         """Write the switch state to the device."""
         if self._client is None or not self._client.is_connected:
