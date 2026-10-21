@@ -27,7 +27,7 @@ def parse_notification(data: bytearray) -> dict[str, Any]:
     """Parse the 8 bytes of the notify characteristic."""
     if len(data) < 8:
         return {}
-    flow_raw, return_raw, status, switch_state = struct.unpack("<HHBBH", data[:8])
+    flow_raw, return_raw, status, switch_state, target_raw = struct.unpack("<HHBBH", data[:8])
     return {
         "flow_temp": flow_raw / 10.0,
         "return_temp": return_raw / 10.0,
@@ -82,8 +82,12 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Handle incoming notifications."""
         parsed = parse_notification(data)
         if parsed:
-            # Sollwert und Schalter aus dem lokalen Zustand ergänzen
-            parsed["target_temp"] = self._current_target_raw / 10.0
+            # Nur ergänzen, wenn der ESP32 keinen Sollwert geliefert hat
+            if "target_temp" not in parsed:
+                parsed["target_temp"] = self._current_target_raw / 10.0
+            # Den lokalen Sollwert mit dem empfangenen Wert synchronisieren
+            if "target_temp" in parsed:
+                self._current_target_raw = int(parsed["target_temp"] * 10)
             parsed["switch_on"] = self._current_switch
             _LOGGER.debug("Received notification: %s", parsed)
             self.async_set_updated_data(parsed)
