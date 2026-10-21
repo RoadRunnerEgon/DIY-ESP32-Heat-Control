@@ -1,0 +1,22 @@
+{
+  "entity": {
+    "sensor": {
+      "flow_temperature": {
+        "name": "Flow temperature"
+      },
+      "return_temperature": {
+        "name": "Return temperature"
+      }
+    },
+    "switch": {
+      "heat_control": {
+        "name": "Heat control"
+      }
+    },
+    "binary_sensor": {
+      "alarm": {
+        "name": "Alarm"
+      }
+    }
+  }
+}

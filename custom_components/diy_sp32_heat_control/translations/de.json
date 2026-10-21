@@ -1,0 +1,22 @@
+{
+  "entity": {
+    "sensor": {
+      "flow_temperature": {
+        "name": "Vorlauftemperatur"
+      },
+      "return_temperature": {
+        "name": "Rücklauftemperatur"
+      }
+    },
+    "switch": {
+      "heat_control": {
+        "name": "Heizungssteuerung"
+      }
+    },
+    "binary_sensor": {
+      "alarm": {
+        "name": "Alarm"
+      }
+    }
+  }
+}
