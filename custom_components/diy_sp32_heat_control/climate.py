@@ -45,7 +45,7 @@ class DiyHeatControlClimate(
     _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
     _attr_target_temperature_step = 0.1
     _attr_min_temp = 5.0
-    _attr_max_temp = 35.0
+    _attr_max_temp = 40.0
 
     def __init__(
         self,
@@ -63,14 +63,14 @@ class DiyHeatControlClimate(
         )
 
     @property
-    def native_current_temperature(self) -> float | None:
+    def current_temperature(self) -> float | None:
         """Return the current (flow) temperature."""
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get("flow_temp")
 
     @property
-    def native_target_temperature(self) -> float | None:
+    def target_temperature(self) -> float | None:
         """Return the target temperature."""
         if self.coordinator.data is None:
             return None

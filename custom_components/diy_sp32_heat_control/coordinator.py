@@ -24,17 +24,17 @@ NOTIFY_UUID = "D50D1277-8781-47ED-91D5-5D9F2FF91FF0"
 
 
 def parse_notification(data: bytearray) -> dict[str, Any]:
-    """Parse the 6 bytes of the notify characteristic."""
-    if len(data) < 6:
+    """Parse the 8 bytes of the notify characteristic."""
+    if len(data) < 8:
         return {}
-    flow_raw, return_raw, status, switch_state = struct.unpack("<HHBB", data[:6])
+    flow_raw, return_raw, status, switch_state = struct.unpack("<HHBBH", data[:8])
     return {
         "flow_temp": flow_raw / 10.0,
         "return_temp": return_raw / 10.0,
         "is_alarm": bool(status),
         "switch_on": bool(switch_state),
+        "target_temp": target_raw / 10.0,
     }
-
 
 class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator for the DIY Heat Control device."""
@@ -50,7 +50,7 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._address = address
         self._client: BleakClient | None = None
         self._current_switch: bool = False      # NEU
-        self._current_target_raw: int = 0       # NEU (skalierter Sollwert)
+        self._current_target_raw: int = 200     # NEU (skalierter Sollwert)
                 
     async def _async_update_data(self) -> dict[str, Any]:
         """Connect to the device and subscribe to notifications."""
