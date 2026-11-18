@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -12,14 +10,20 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import CIRCUIT_COUNT
 from .coordinator import DiyHeatControlCoordinator
+from .entity import DiyHeatControlEntity
 
-_LOGGER = logging.getLogger(__name__)
+# (translation_key, Schlüssel im Coordinator-Datensatz)
+# Die translation_keys der ersten beiden bleiben unverändert -> bestehende
+# Entitäten (unique_id) und ihre Historie bleiben erhalten.
+TEMPERATURE_SENSORS: tuple[tuple[str, str], ...] = (
+    ("flow_temperature", "flow_temp"),
+    ("return_temperature", "return_temp"),
+    ("supply_temperature", "supply_temp"),
+)
 
 
 async def async_setup_entry(
@@ -29,60 +33,101 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor entities from a config entry."""
     coordinator: DiyHeatControlCoordinator = entry.runtime_data
-    async_add_entities(
-        [
-            FlowTemperatureSensor(coordinator, entry),
-            ReturnTemperatureSensor(coordinator, entry),
-        ]
-    )
+    entities: list[SensorEntity] = [
+        TemperatureSensor(coordinator, entry, key, data_key)
+        for key, data_key in TEMPERATURE_SENSORS
+    ]
+    for circuit in range(1, CIRCUIT_COUNT + 1):
+        entities.append(CircuitTemperatureSensor(coordinator, entry, circuit, is_return=False))
+        entities.append(CircuitTemperatureSensor(coordinator, entry, circuit, is_return=True))
+        entities.append(CircuitSpreadSensor(coordinator, entry, circuit))
+    async_add_entities(entities)
 
 
-class _BaseTemperatureSensor(
-    CoordinatorEntity[DiyHeatControlCoordinator], SensorEntity
-):
-    """Base class for the temperature sensors."""
+class TemperatureSensor(DiyHeatControlEntity, SensorEntity):
+    """A temperature reported by the ESP (Vorlauf, Rücklauf, Zulauf)."""
 
-    _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_suggested_display_precision = 1
 
-    _data_key: str
-    _attr_translation_key: str
+    def __init__(
+        self,
+        coordinator: DiyHeatControlCoordinator,
+        entry: ConfigEntry,
+        translation_key: str,
+        data_key: str,
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._attr_translation_key = translation_key
+        self._attr_unique_id = f"{entry.unique_id}_{translation_key}"
+        self._data_key = data_key
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the temperature (None = Fühler ungültig/nicht angeschlossen)."""
+        return (self.coordinator.data or {}).get(self._data_key)
+
+
+def _circuit_values(coordinator: DiyHeatControlCoordinator, circuit: int) -> tuple[float | None, float | None]:
+    """Return (Vorlauf, Rücklauf) of a circuit (1-based). Slot 2n-1 = Vorlauf, 2n = Rücklauf."""
+    temps = (coordinator.data or {}).get("circuit_temps") or []
+    i = (circuit - 1) * 2
+    flow = temps[i] if i < len(temps) else None
+    ret = temps[i + 1] if i + 1 < len(temps) else None
+    return flow, ret
+
+
+class CircuitTemperatureSensor(DiyHeatControlEntity, SensorEntity):
+    """Vorlauf- oder Rücklauftemperatur eines einzelnen Heizkreises (DS18B20)."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_suggested_display_precision = 1
 
     def __init__(
         self,
         coordinator: DiyHeatControlCoordinator,
         entry: ConfigEntry,
+        circuit: int,
+        is_return: bool,
     ) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.unique_id}_{self._attr_translation_key}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.unique_id)},
-            name=entry.title,
-            manufacturer="DIY",
-            model="ESP32 Heat Control",
-        )
+        super().__init__(coordinator, entry)
+        kind = "return" if is_return else "flow"
+        self._circuit = circuit
+        self._is_return = is_return
+        self._attr_translation_key = f"circuit_{kind}"
+        self._attr_translation_placeholders = {"circuit": str(circuit)}
+        self._attr_unique_id = f"{entry.unique_id}_circuit_{circuit}_{kind}"
 
     @property
     def native_value(self) -> float | None:
-        """Return the current temperature."""
-        if self.coordinator.data is None:
+        flow, ret = _circuit_values(self.coordinator, self._circuit)
+        return ret if self._is_return else flow
+
+
+class CircuitSpreadSensor(DiyHeatControlEntity, SensorEntity):
+    """Spreizung (Vorlauf − Rücklauf) eines Heizkreises in Kelvin."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "K"
+    _attr_suggested_display_precision = 1
+    _attr_icon = "mdi:thermometer-lines"
+
+    def __init__(
+        self, coordinator: DiyHeatControlCoordinator, entry: ConfigEntry, circuit: int
+    ) -> None:
+        super().__init__(coordinator, entry)
+        self._circuit = circuit
+        self._attr_translation_key = "circuit_spread"
+        self._attr_translation_placeholders = {"circuit": str(circuit)}
+        self._attr_unique_id = f"{entry.unique_id}_circuit_{circuit}_spread"
+
+    @property
+    def native_value(self) -> float | None:
+        flow, ret = _circuit_values(self.coordinator, self._circuit)
+        if flow is None or ret is None:
             return None
-        return self.coordinator.data.get(self._data_key)
-
-
-class FlowTemperatureSensor(_BaseTemperatureSensor):
-    """Sensor for the flow (Vorlauf) temperature."""
-
-    _data_key = "flow_temp"
-    _attr_translation_key = "flow_temperature"
-
-
-class ReturnTemperatureSensor(_BaseTemperatureSensor):
-    """Sensor for the return (Rücklauf) temperature."""
-
-    _data_key = "return_temp"
-    _attr_translation_key = "return_temperature"
+        return round(flow - ret, 2)

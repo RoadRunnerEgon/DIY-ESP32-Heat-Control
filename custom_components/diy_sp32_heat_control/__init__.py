@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import logging
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
 from .coordinator import DiyHeatControlCoordinator
 
-_LOGGER = logging.getLogger(__name__)
-
-# Alle Plattformen, die deine Integration bereitstellt
 _PLATFORMS: list[Platform] = [
     Platform.CLIMATE,
     Platform.SENSOR,
@@ -20,11 +15,10 @@ _PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
 ]
 
-# Typ-Alias für den Config Entry mit dem Coordinator als runtime_data
 type DiyValveControlConfigEntry = ConfigEntry[DiyHeatControlCoordinator]
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: DiyValveControlConfigEntry) -> bool:
     """Set up DIY Heat Control from a config entry."""
     address = entry.unique_id
     if address is None:
@@ -33,16 +27,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = DiyHeatControlCoordinator(hass, address)
     entry.runtime_data = coordinator
 
-    # Ersten Datenabruf auslösen (verbindet sich mit dem Gerät)
+    # Verbindet sich mit dem Gerät und abonniert die Notifies
     await coordinator.async_config_entry_first_refresh()
 
-    # Plattformen laden
     await hass.config_entries.async_forward_entry_setups(entry, _PLATFORMS)
-
     return True
 
-async def async_unload_entry(
-    hass: HomeAssistant, entry: DiyValveControlConfigEntry
-) -> bool:
-    """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, _PLATFORMS)
+
+async def async_unload_entry(hass: HomeAssistant, entry: DiyValveControlConfigEntry) -> bool:
+    """Unload a config entry and close the BLE connection."""
+    unloaded = await hass.config_entries.async_unload_platforms(entry, _PLATFORMS)
+    if unloaded:
+        await entry.runtime_data.async_disconnect()
+    return unloaded

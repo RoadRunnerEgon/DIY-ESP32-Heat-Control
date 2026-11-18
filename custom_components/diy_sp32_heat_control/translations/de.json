@@ -6,6 +6,18 @@
       },
       "return_temperature": {
         "name": "Rücklauftemperatur"
+      },
+      "supply_temperature": {
+        "name": "Zulauftemperatur"
+      },
+      "circuit_flow": {
+        "name": "Kreis {circuit} Vorlauf"
+      },
+      "circuit_return": {
+        "name": "Kreis {circuit} Rücklauf"
+      },
+      "circuit_spread": {
+        "name": "Kreis {circuit} Spreizung"
       }
     },
     "switch": {
@@ -16,6 +28,18 @@
     "binary_sensor": {
       "alarm": {
         "name": "Alarm"
+      },
+      "overtemperature": {
+        "name": "Übertemperatur"
+      },
+      "sensor_fault": {
+        "name": "Vorlauffühler-Fehler"
+      },
+      "valve_moving": {
+        "name": "Antrieb fährt"
+      },
+      "homed": {
+        "name": "Antrieb referenziert"
       }
     }
   }

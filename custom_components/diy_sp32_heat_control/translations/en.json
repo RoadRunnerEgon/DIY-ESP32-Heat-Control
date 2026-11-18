@@ -6,6 +6,18 @@
       },
       "return_temperature": {
         "name": "Return temperature"
+      },
+      "supply_temperature": {
+        "name": "Supply temperature"
+      },
+      "circuit_flow": {
+        "name": "Circuit {circuit} flow"
+      },
+      "circuit_return": {
+        "name": "Circuit {circuit} return"
+      },
+      "circuit_spread": {
+        "name": "Circuit {circuit} spread"
       }
     },
     "switch": {
@@ -16,6 +28,18 @@
     "binary_sensor": {
       "alarm": {
         "name": "Alarm"
+      },
+      "overtemperature": {
+        "name": "Overtemperature"
+      },
+      "sensor_fault": {
+        "name": "Flow sensor fault"
+      },
+      "valve_moving": {
+        "name": "Valve moving"
+      },
+      "homed": {
+        "name": "Valve referenced"
       }
     }
   }

@@ -2,25 +2,22 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import MAX_TARGET_TEMP, MIN_TARGET_TEMP
 from .coordinator import DiyHeatControlCoordinator
-
-_LOGGER = logging.getLogger(__name__)
+from .entity import DiyHeatControlEntity
 
 
 async def async_setup_entry(
@@ -33,73 +30,70 @@ async def async_setup_entry(
     async_add_entities([DiyHeatControlClimate(coordinator, entry)])
 
 
-class DiyHeatControlClimate(
-    CoordinatorEntity[DiyHeatControlCoordinator], ClimateEntity
-):
-    """Representation of the DIY Heat Control thermostat."""
+class DiyHeatControlClimate(DiyHeatControlEntity, ClimateEntity):
+    """Vorlauf-Regler: Ist = Vorlauftemperatur, Soll = Vorlauf-Sollwert."""
 
-    _attr_has_entity_name = True
-    _attr_name = None  # Use the device name as the entity name
+    _attr_name = None  # Gerätename als Entitätsname
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
-    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+    _attr_supported_features = (
+        ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.TURN_OFF
+    )
     _attr_target_temperature_step = 0.1
-    _attr_min_temp = 5.0
-    _attr_max_temp = 40.0
+    _attr_min_temp = MIN_TARGET_TEMP
+    _attr_max_temp = MAX_TARGET_TEMP
 
-    def __init__(
-        self,
-        coordinator: DiyHeatControlCoordinator,
-        entry: ConfigEntry,
-    ) -> None:
-        """Initialize the climate entity."""
-        super().__init__(coordinator)
+    def __init__(self, coordinator: DiyHeatControlCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry)
         self._attr_unique_id = f"{entry.unique_id}_climate"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.unique_id)},
-            name=entry.title,
-            manufacturer="DIY",
-            model="ESP32 Heat Control",
-        )
+
+    @property
+    def _data(self) -> dict[str, Any]:
+        return self.coordinator.data or {}
 
     @property
     def current_temperature(self) -> float | None:
-        """Return the current (flow) temperature."""
-        if self.coordinator.data is None:
-            return None
-        return self.coordinator.data.get("flow_temp")
+        return self._data.get("flow_temp")
 
     @property
     def target_temperature(self) -> float | None:
-        """Return the target temperature."""
-        if self.coordinator.data is None:
-            return None
-        return self.coordinator.data.get("target_temp")
+        return self._data.get("target_temp")
 
     @property
     def hvac_mode(self) -> HVACMode:
-        """Return the current HVAC mode."""
-        if self.coordinator.data and self.coordinator.data.get("switch_on"):
-            return HVACMode.HEAT
-        return HVACMode.OFF
+        return HVACMode.HEAT if self._data.get("switch_on") else HVACMode.OFF
+
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        if not self._data:
+            return None
+        if not self._data.get("switch_on"):
+            return HVACAction.OFF
+        if self._data.get("is_alarm"):
+            return HVACAction.IDLE
+        return HVACAction.HEATING
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "supply_temperature": self._data.get("supply_temp"),
+            "return_temperature": self._data.get("return_temp"),
+            "status_raw": self._data.get("status"),
+        }
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set the target temperature."""
-        if (temp := kwargs.get("temperature")) is not None:
-            # Scale float to uint16 with one decimal place
-            raw_value = int(round(temp * 10))
-            await self.coordinator.async_write_target_temp(raw_value)
-            # Optimistically update the state until the next notification arrives
-            if self.coordinator.data is not None:
-                self.coordinator.data["target_temp"] = temp
-            self.async_write_ha_state()
+        if (temp := kwargs.get(ATTR_TEMPERATURE)) is None:
+            return
+        temp = min(max(float(temp), MIN_TARGET_TEMP), MAX_TARGET_TEMP)
+        await self.coordinator.async_write_target_temp(int(round(temp * 10)))
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set the HVAC mode (on/off)."""
-        if hvac_mode == HVACMode.HEAT:
-            await self.coordinator.async_write_switch(True)
-        elif hvac_mode == HVACMode.OFF:
-            await self.coordinator.async_write_switch(False)
-        if self.coordinator.data is not None:
-            self.coordinator.data["switch_on"] = hvac_mode == HVACMode.HEAT
-        self.async_write_ha_state()
+        await self.coordinator.async_write_switch(hvac_mode == HVACMode.HEAT)
+
+    async def async_turn_on(self) -> None:
+        await self.coordinator.async_write_switch(True)
+
+    async def async_turn_off(self) -> None:
+        await self.coordinator.async_write_switch(False)
