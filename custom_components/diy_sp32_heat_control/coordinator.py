@@ -111,6 +111,7 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Die beiden Notifies kommen getrennt; zusammengeführt in self.data
         self._main: dict[str, Any] = {}
         self._circuits: list[float | None] = [None] * (CIRCUIT_COUNT * 2)
+        self._cache_cleared = False
 
     # ------------------------------------------------------------------ #
     # Verbindung
@@ -134,18 +135,45 @@ class DiyHeatControlCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             _LOGGER.debug("Connected to %s", self._address)
             await self._client.start_notify(NOTIFY_UUID, self._notification_handler)
-            # Heizkreis-Fühler: gibt es erst ab neuerer Firmware -> Fehler tolerieren
-            try:
+
+            # Heizkreis-Fühler (neuere Firmware). Fehlt die Charakteristik, liegt das
+            # meist an einer veralteten Dienst-Liste im Cache (alte Firmware):
+            # Cache einmal löschen und neu verbinden.
+            if self._client.services.get_characteristic(CIRCUIT_NOTIFY_UUID) is None:
+                if not self._cache_cleared:
+                    self._cache_cleared = True
+                    _LOGGER.info("Heizkreis-Kanal nicht gefunden – BLE-Cache wird geleert und neu verbunden")
+                    client, self._client = self._client, None
+                    await client.clear_cache()
+                    await client.disconnect()
+                    raise UpdateFailed("BLE-Cache geleert, verbinde neu")
+                _LOGGER.info("Heizkreis-Kanal nicht vorhanden (ältere Firmware?)")
+            else:
                 await self._client.start_notify(
                     CIRCUIT_NOTIFY_UUID, self._circuit_notification_handler
                 )
-            except (BleakError, ValueError) as err:
-                _LOGGER.info("Heizkreis-Fühler nicht verfügbar (ältere Firmware?): %s", err)
+
+            # Aktuelle Werte einmal direkt lesen, statt auf das nächste Notify zu warten
+            await self._async_read_initial()
         except BleakError as err:
             self._client = None
             raise UpdateFailed(f"BLE connection failed: {err}") from err
 
         return self.data or {}
+
+    async def _async_read_initial(self) -> None:
+        """Read both characteristics once after connecting (they are readable)."""
+        assert self._client is not None
+        try:
+            main = await self._client.read_gatt_char(NOTIFY_UUID)
+            if main:
+                self._notification_handler(0, bytearray(main))
+            if self._client.services.get_characteristic(CIRCUIT_NOTIFY_UUID) is not None:
+                circuits = await self._client.read_gatt_char(CIRCUIT_NOTIFY_UUID)
+                if circuits:
+                    self._circuit_notification_handler(0, bytearray(circuits))
+        except BleakError as err:
+            _LOGGER.debug("Initial read failed (not critical): %s", err)
 
     @callback
     def _on_disconnect(self, client: BleakClient) -> None:
